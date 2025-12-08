@@ -48,22 +48,24 @@ function emitRoster(roomId) {
 io.on("connection", (socket) => {
   log("[io] connected", socket.id);
 
-  let current = { roomId: null, userId: null };
+  let current = { roomId: null, userId: null, userName: null };
 
-  socket.on("meeting:join", ({ roomId, userId }) => {
+  socket.on("meeting:join", ({ roomId, userId, userName, language, type }) => {
     if (!roomId || !userId) return;
 
     const prevSocketId = registry.getSocketId(roomId, userId);
+    const room = registry.ensure(roomId);
+    const roomType = room.type ?? type
 
     current = { roomId, userId };
-    registry.join(roomId, userId, socket.id);
+    registry.join(roomId, userId, socket.id, userName, language, roomType);
     socket.join(roomId);
 
     const others = registry.getOthers(roomId, userId);
-    socket.emit("meeting:joined", { participants: others });
+    socket.emit("meeting:joined", { participants: others, roomType });
 
     if (!prevSocketId) {
-      socket.to(roomId).emit("meeting:user-joined", { userId });
+      socket.to(roomId).emit("meeting:user-joined", { userId, userName });
       log(
         `[meeting] join room=${roomId} user=${userId} sock=${socket.id} (others=${others.length})`,
       );
@@ -79,11 +81,20 @@ io.on("connection", (socket) => {
   socket.on("meeting:leave", ({ roomId }) => {
     const rid = roomId || current.roomId;
     if (!rid || !current.userId) return;
-    registry.leave(rid, current.userId);
+
+    const roomIsEmpty = registry.leave(rid, current.userId);
+
     socket.leave(rid);
-    socket.to(rid).emit("meeting:user-left", { userId: current.userId });
+
+    if (!roomIsEmpty) {
+
+      socket.to(rid).emit("meeting:user-left", { userId: current.userId });
+      emitRoster(rid);
+    } else {
+      log(`[meeting] room=${rid} is now empty, cleaned up registry entry`);
+    }
+
     log(`[meeting] leave room=${rid} user=${current.userId}`);
-    emitRoster(rid);
     current = { roomId: null, userId: null };
   });
 
@@ -123,12 +134,53 @@ io.on("connection", (socket) => {
   });
 
   socket.on("stt.send.message", async (data, ack) => {
-    console.log("recv stt.send.message:", data);
-    const target = "en";
-    const { translatedText } = await translateText(data.payload.text, target);
-    socket.broadcast.emit("stt.receive.message", { text: translatedText });
+    const sender = registry.getUser(data.roomId, data.userId);
+    const fromLang = sender?.language || data.from || "auto";
+    const others = registry.getOthers(data.roomId, data.userId);
+
+    for (const other of others) {
+      const targetLang = other.language || data.target || "en";
+
+
+      const { translatedText } = fromLang === targetLang ? { translatedText: data.text } : await translateText(
+        data.text,
+        targetLang,
+        fromLang,
+      );
+
+      io.to(other.socketId).emit("stt.receive.message", {
+        ...data,
+        text: translatedText,
+        from: fromLang,
+        target: targetLang,
+        toUserId: other.userId,
+      });
+    }
+
     if (ack) ack({ ok: true, receivedAt: Date.now() });
   });
+
+  socket.on("change.language", async (data, ack) => {
+
+    registry.updateLanguage(
+      data.roomId,
+      data.userId,
+      data.language,
+    );
+
+    if (ack) ack({ ok: true, receivedAt: Date.now() });
+  });
+
+  socket.on("meeting:checkRoom", async (data, ack) => {
+    const result = registry.checkRoom(data.roomId);
+
+    if (ack) {
+      ack(result);
+    }
+  });
+
+
+
 
   socket.on("disconnect", () => {
     const removed = registry.removeBySocket(socket.id);
