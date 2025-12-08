@@ -55,7 +55,7 @@ io.on("connection", (socket) => {
 
     const prevSocketId = registry.getSocketId(roomId, userId);
     const room = registry.ensure(roomId);
-    const roomType = room.type ?? type
+    const roomType = room.type ?? type;
 
     current = { roomId, userId };
     registry.join(roomId, userId, socket.id, userName, language, roomType);
@@ -87,7 +87,6 @@ io.on("connection", (socket) => {
     socket.leave(rid);
 
     if (!roomIsEmpty) {
-
       socket.to(rid).emit("meeting:user-left", { userId: current.userId });
       emitRoster(rid);
     } else {
@@ -141,12 +140,10 @@ io.on("connection", (socket) => {
     for (const other of others) {
       const targetLang = other.language || data.target || "en";
 
-
-      const { translatedText } = fromLang === targetLang ? { translatedText: data.text } : await translateText(
-        data.text,
-        targetLang,
-        fromLang,
-      );
+      const { translatedText } =
+        fromLang === targetLang
+          ? { translatedText: data.text }
+          : await translateText(data.text, targetLang, fromLang);
 
       io.to(other.socketId).emit("stt.receive.message", {
         ...data,
@@ -161,12 +158,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("change.language", async (data, ack) => {
-
-    registry.updateLanguage(
-      data.roomId,
-      data.userId,
-      data.language,
-    );
+    registry.updateLanguage(data.roomId, data.userId, data.language);
 
     if (ack) ack({ ok: true, receivedAt: Date.now() });
   });
@@ -178,9 +170,6 @@ io.on("connection", (socket) => {
       ack(result);
     }
   });
-
-
-
 
   socket.on("disconnect", () => {
     const removed = registry.removeBySocket(socket.id);
