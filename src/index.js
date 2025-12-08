@@ -5,7 +5,7 @@ import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { log, warn } from "./logger.js";
 import { registry } from "./registry.js";
-import { translateText } from "./translate.js";
+import { translateTextWithAzure } from "./translate.js";
 
 const app = express();
 
@@ -143,7 +143,7 @@ io.on("connection", (socket) => {
       const { translatedText } =
         fromLang === targetLang
           ? { translatedText: data.text }
-          : await translateText(data.text, targetLang, fromLang);
+          : await translateTextWithAzure(data.text, targetLang, fromLang);
 
       io.to(other.socketId).emit("stt.receive.message", {
         ...data,
